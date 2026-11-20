@@ -141,6 +141,69 @@ func (s *ReactiveTranslate) Executer(entities []*ecs.Entity) {
 }
 ```
 
+## Command buffer (deferred entity changes)
+Destroying enemies or spawning projectiles while iterating a group mutates the
+very set being iterated, so members of the current frame can be skipped. A
+`CommandBuffer` records changes and applies them all at once at the end of the
+frame via `Flush()`. Until then every group and collector keeps its old state,
+so iteration is always safe.
+
+```go
+type BattleSystem struct {
+	enemies ecs.Group
+	buffer  ecs.CommandBuffer
+}
+
+func (s *BattleSystem) Initer(contexts ecs.Contexts) {
+	game := contexts.Game()
+	s.enemies = game.Group(ecs.NewMatcher().AllOf(ecs.Health))
+	s.buffer = game.CreateCommandBuffer()
+}
+
+func (s *BattleSystem) Executer() {
+	for _, e := range s.enemies.GetEntities() {
+		if e.GetHealth() <= 0 {
+			// Deferred creation: the returned placeholder accepts component
+			// commands; the real entity appears in the context at Flush time.
+			shot := s.buffer.CreateEntity()
+			s.buffer.AddComponent(shot, ecs.Sprite, &SpriteComponent{})
+			s.buffer.DestroyEntity(e) // deferred destruction
+		}
+	}
+	s.buffer.Flush() // all changes applied in enqueue order
+}
+```
+
+Recording API:
+
+| Command | Effect at `Flush()` |
+| --- | --- |
+| `CreateEntity()` | Returns a placeholder; the real entity is created in the context |
+| `DestroyEntity(e)` | Destroys the entity and removes it from every group |
+| `AddComponent(e, i, c)` | Adds `c`; same-slot writes coalesce to the last value |
+| `ReplaceComponent(e, i, c)` | Adds when the slot is empty, replaces otherwise (`Entity.Replace` semantics) |
+| `RemoveComponent(e, i)` | Removes the component; cancels a queued write for the same slot |
+| `Reset()` | Discards all recorded commands without applying them |
+
+Semantics and guarantees:
+
+- Commands are applied in enqueue order. Multiple commands touching one entity
+  and one component slot are coalesced, so after `Flush()` groups and
+  collectors only observe the entity's final state (the generated `AddX` /
+  `ReplaceX` / `RemoveX` APIs follow the same rules).
+- Recording validates its arguments and returns a sentinel error for nil
+  entities, cross-context references, already destroyed entities, out-of-range
+  component indices, nil components, duplicate destroys/removes, and commands
+  queued after a destroy.
+- During `Flush()`, commands are independent: a command that can no longer be
+  applied is collected into a `FlushErrors` result while the remaining commands
+  still run. `Flush()` on an empty (or already flushed) buffer is a successful
+  no-op; the buffer resets itself and can be reused.
+- `CreateEntity`/`DestroyEntity` interleave safely in large batches — all
+  bookkeeping is map/slice based, with no quadratic scans.
+- A `CommandBuffer` also implements `Executer`, so it can be added to a system
+  pool to flush automatically; inspect `LastError()` afterwards.
+
 The MIT License (MIT)
 =====================
 

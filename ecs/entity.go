@@ -11,6 +11,12 @@ type Entity struct {
 	componentState
 	componentPool *[]componentPool
 
+	// context owns the entity and is used by CommandBuffer to reject
+	// cross-context references. isAlive is false for destroyed entities
+	// and for entities deferred by a CommandBuffer until Flush creates them.
+	context *entityBase
+	isAlive bool
+
 	onComponentAdd     onComponent
 	onComponentRemove  onComponent
 	onComponentReplace onComponent
@@ -42,7 +48,14 @@ func (e *Entity) ID() int {
 	return e.id
 }
 
+// IsAlive reports whether the entity is currently usable. It is false after
+// Destroy() and for entities deferred by a CommandBuffer before Flush().
+func (e *Entity) IsAlive() bool {
+	return e.isAlive
+}
+
 func (e *Entity) Destroy() {
+	e.isAlive = false
 	e.componentState = make(componentState, e.componentTotal)
 	e.onComponentOff = e.onComponentOff[:1]
 	e.onComponentAdd = e.onComponentAdd[:1]

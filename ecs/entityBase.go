@@ -10,6 +10,7 @@ type EntityBase interface {
 	CreateEntity() *Entity
 	Group(Matcher) Group
 	Collector(Matcher) Collector
+	CreateCommandBuffer() CommandBuffer
 
 	OnGroupCreated(func(Group))
 
@@ -73,6 +74,9 @@ func (eb *entityBase) CreateEntity() *Entity {
 		entity.OnComponentReplaced(eb.updateGroupsComponentReplaced)
 	}
 
+	entity.context = eb
+	entity.isAlive = true
+
 	if eb.onEntityCreated != nil {
 		eb.onEntityCreated.Execute(entity)
 	}
@@ -127,6 +131,10 @@ func (eb *entityBase) Collector(matcher Matcher) Collector {
 	return newCollector(g)
 }
 
+func (eb *entityBase) CreateCommandBuffer() CommandBuffer {
+	return newCommandBuffer(eb)
+}
+
 /////////////////////////////////////////////////////
 // Private:
 /////////////////////////////////////////////////////
@@ -155,6 +163,16 @@ func (eb *entityBase) destroyEntity(e *Entity) {
 	e.onEntityDestroy = e.onEntityDestroy[:1]
 	if eb.onEntityWillBeDestroyed != nil {
 		eb.onEntityWillBeDestroyed.Execute(e)
+	}
+	// The entity leaves every group before it is recycled, otherwise
+	// destroyed entities stay visible through GetEntities() until their id
+	// happens to be reused. index -1 / nil component mark a destroy removal.
+	for _, groups := range eb.groupsIndex {
+		for _, g := range groups {
+			if g.has(e) {
+				g.removeEntity(e, -1, nil)
+			}
+		}
 	}
 	eb.entityPool.Push(e.id)
 	if eb.onEntityDestroyed != nil {

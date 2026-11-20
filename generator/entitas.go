@@ -37,6 +37,7 @@ var files []string = []string{
 	"https://raw.githubusercontent.com/Falldot/Entitas-Go/master/ecs/group.go",
 	"https://raw.githubusercontent.com/Falldot/Entitas-Go/master/ecs/collector.go",
 	"https://raw.githubusercontent.com/Falldot/Entitas-Go/master/ecs/system.go",
+	"https://raw.githubusercontent.com/Falldot/Entitas-Go/master/ecs/commandBuffer.go",
 }
 
 func CreateEntitasLibFile() {
